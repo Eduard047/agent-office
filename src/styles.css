@@ -132,6 +132,12 @@ textarea:focus-visible {
   background: #f6f1e8;
 }
 
+.token-pill.is-low {
+  border-color: #e4c98f;
+  background: #fff8e9;
+  color: #79591d;
+}
+
 .profile-button {
   width: 44px;
   height: 44px;
@@ -260,8 +266,26 @@ textarea:focus-visible {
   background: #8bb267;
 }
 
+.usage-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 0;
+  border-top: 1px solid #eee8df;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.usage-detail-row strong {
+  color: #4f4e49;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
+
 .budget-popover > p:last-child {
-  margin: 0;
+  margin: 10px 0 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;

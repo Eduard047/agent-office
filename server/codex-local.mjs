@@ -168,11 +168,134 @@ function runProcess(command, args, options = {}) {
   });
 }
 
+function normalizeAccountUsage(rateLimitResponse, usageResponse) {
+  const snapshots = Object.values(rateLimitResponse?.rateLimitsByLimitId || {}).filter(Boolean);
+  const rateLimits =
+    snapshots.find((snapshot) => snapshot.limitId === "codex") ||
+    rateLimitResponse?.rateLimits ||
+    snapshots[0] ||
+    null;
+  const normalizeWindow = (window) =>
+    window
+      ? {
+          usedPercent: Math.max(0, Math.min(100, Number(window.usedPercent || 0))),
+          remainingPercent: Math.max(
+            0,
+            Math.min(100, 100 - Number(window.usedPercent || 0)),
+          ),
+          windowDurationMins: window.windowDurationMins ?? null,
+          resetsAt: window.resetsAt ?? null,
+        }
+      : null;
+
+  if (!rateLimits && !usageResponse?.summary) return null;
+
+  return {
+    planType: rateLimits?.planType || null,
+    primary: normalizeWindow(rateLimits?.primary),
+    secondary: normalizeWindow(rateLimits?.secondary),
+    credits: rateLimits?.credits
+      ? {
+          hasCredits: Boolean(rateLimits.credits.hasCredits),
+          unlimited: Boolean(rateLimits.credits.unlimited),
+          balance: rateLimits.credits.balance ?? null,
+        }
+      : null,
+    lifetimeTokens:
+      usageResponse?.summary?.lifetimeTokens == null
+        ? null
+        : Number(usageResponse.summary.lifetimeTokens),
+    peakDailyTokens:
+      usageResponse?.summary?.peakDailyTokens == null
+        ? null
+        : Number(usageResponse.summary.peakDailyTokens),
+  };
+}
+
+export function queryCodexAccountUsage(options = {}) {
+  const codexBin = options.codexBin || process.env.CODEX_BIN || DEFAULT_CODEX_BIN;
+  const spawnImpl = options.spawnImpl || spawn;
+
+  return new Promise((resolve) => {
+    let finished = false;
+    let initialized = false;
+    let stdout = "";
+    let rateLimits = null;
+    let tokenUsage = null;
+    const child = spawnImpl(codexBin, ["app-server", "--stdio"], {
+      cwd: ROOT,
+      env: { ...process.env, RUST_LOG: "error" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const finish = (value = null) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timeout);
+      if (!child.killed) child.kill("SIGTERM");
+      resolve(value);
+    };
+
+    const send = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
+    const handleLine = (line) => {
+      if (!line.trim().startsWith("{")) return;
+      let message;
+      try {
+        message = JSON.parse(line);
+      } catch {
+        return;
+      }
+
+      if (message.id === 1 && message.result && !initialized) {
+        initialized = true;
+        send({ method: "initialized" });
+        send({ method: "account/rateLimits/read", id: 2 });
+        send({ method: "account/usage/read", id: 3 });
+      }
+      if (message.id === 2) rateLimits = message.result;
+      if (message.id === 3) tokenUsage = message.result;
+      if (rateLimits && tokenUsage) finish(normalizeAccountUsage(rateLimits, tokenUsage));
+    };
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      let newline = stdout.indexOf("\n");
+      while (newline !== -1) {
+        handleLine(stdout.slice(0, newline));
+        stdout = stdout.slice(newline + 1);
+        newline = stdout.indexOf("\n");
+      }
+    });
+    child.once("error", () => finish(null));
+    child.once("close", () => {
+      if (stdout.trim()) handleLine(stdout);
+      finish(rateLimits || tokenUsage ? normalizeAccountUsage(rateLimits, tokenUsage) : null);
+    });
+
+    const timeout = setTimeout(() => finish(null), options.timeoutMs || 5000);
+    timeout.unref?.();
+    send({
+      method: "initialize",
+      id: 1,
+      params: {
+        clientInfo: { name: "agent-office", title: "Agent Office", version: "1.0.0" },
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      },
+    });
+  });
+}
+
 export async function getCodexStatus(options = {}) {
   const codexBin = options.codexBin || process.env.CODEX_BIN || DEFAULT_CODEX_BIN;
   const result = await (options.runProcess || runProcess)(codexBin, ["login", "status"]);
   const loggedInWithChatGPT =
     result.code === 0 && /logged in using chatgpt/i.test(`${result.stdout}\n${result.stderr}`);
+  const accountUsage = loggedInWithChatGPT
+    ? await (options.queryAccountUsage || queryCodexAccountUsage)({
+        codexBin,
+        spawnImpl: options.accountSpawnImpl,
+      })
+    : null;
 
   return {
     configured: loggedInWithChatGPT,
@@ -188,6 +311,7 @@ export async function getCodexStatus(options = {}) {
       description,
     })),
     efforts: Object.entries(EFFORT_LABELS).map(([id, label]) => ({ id, label })),
+    accountUsage,
   };
 }
 
@@ -525,6 +649,7 @@ export async function handleLocalApiRequest(request, options = {}) {
 export const testing = {
   buildPrompt,
   normalizeResult,
+  normalizeAccountUsage,
   routeRequest,
   rolePlans: ROLE_PLANS,
 };

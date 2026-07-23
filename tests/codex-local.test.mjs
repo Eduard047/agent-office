@@ -7,6 +7,7 @@ import {
   handleLocalApiRequest,
   parseCodexJsonl,
   routeRequest,
+  testing,
 } from "../server/codex-local.mjs";
 
 function parseEvents(response) {
@@ -22,11 +23,39 @@ test("detects ChatGPT subscription authentication without exposing credentials",
       stdout: "Logged in using ChatGPT\n",
       stderr: "",
     }),
+    queryAccountUsage: async () => ({
+      planType: "pro",
+      primary: { usedPercent: 35, remainingPercent: 65 },
+      lifetimeTokens: 123456,
+    }),
   });
 
   assert.equal(status.configured, true);
   assert.equal(status.provider, "codex");
   assert.equal(status.subscription, "ChatGPT");
+  assert.equal(status.accountUsage.primary.remainingPercent, 65);
+});
+
+test("normalizes subscription usage as remaining rate-limit percentage", () => {
+  const usage = testing.normalizeAccountUsage(
+    {
+      rateLimits: {
+        limitId: "codex",
+        planType: "pro",
+        primary: { usedPercent: 72, windowDurationMins: 10080, resetsAt: 1234 },
+        secondary: null,
+        credits: { hasCredits: false, unlimited: false, balance: "0" },
+      },
+      rateLimitsByLimitId: null,
+    },
+    {
+      summary: { lifetimeTokens: 987654, peakDailyTokens: 123456 },
+    },
+  );
+
+  assert.equal(usage.planType, "pro");
+  assert.equal(usage.primary.remainingPercent, 28);
+  assert.equal(usage.lifetimeTokens, 987654);
 });
 
 test("extracts the structured final message and Codex usage", () => {
@@ -154,6 +183,7 @@ test("streams a subscription-backed Codex run into office task events", async ()
       stdout: "Logged in using ChatGPT",
       stderr: "",
     }),
+    queryAccountUsage: async () => null,
     spawnImpl,
   });
   const events = await parseEvents(response);

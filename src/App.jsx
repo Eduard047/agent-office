@@ -81,6 +81,23 @@ function formatTokens(value) {
   return `${compact}k`;
 }
 
+function formatLargeNumber(value) {
+  return new Intl.NumberFormat("ru-RU", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Number(value || 0));
+}
+
+function formatResetTime(timestamp) {
+  if (!timestamp) return "не указан";
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(Number(timestamp) * 1000));
+}
+
 function loadLastRun() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
@@ -181,6 +198,7 @@ export function App() {
     ecoModel: "",
     balancedModel: "",
     solModel: "",
+    accountUsage: null,
   });
   const [goal, setGoal] = useState("");
   const [modelChoice, setModelChoice] = useState("auto");
@@ -252,6 +270,10 @@ export function App() {
 
   const selectedAgent = agents.find((agent) => agent.id === selectedAgentId);
   const usagePercent = Math.min(100, Math.round((run.usage.total / budget) * 100));
+  const subscriptionWindow = apiStatus.accountUsage?.primary || null;
+  const remainingPercent = subscriptionWindow
+    ? Math.round(subscriptionWindow.remainingPercent)
+    : null;
 
   const notify = (message) => {
     setToast(message);
@@ -386,6 +408,9 @@ export function App() {
       }
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
+      getApiStatus()
+        .then((status) => setApiStatus({ ...status, loading: false }))
+        .catch(() => {});
     }
   };
 
@@ -466,32 +491,94 @@ export function App() {
           />
           <div className="header-popover-wrap">
             <button
-              className="token-pill"
+              className={`token-pill${
+                remainingPercent != null && remainingPercent <= 10 ? " is-low" : ""
+              }`}
               onClick={() => {
                 setShowBudget((value) => !value);
                 setShowTeam(false);
               }}
               aria-expanded={showBudget}
             >
-              <strong>{formatTokens(run.usage.total)}</strong> токенов
+              {apiStatus.provider === "codex" && apiStatus.configured ? (
+                remainingPercent == null ? (
+                  <>
+                    <strong>Pro</strong> активно
+                  </>
+                ) : (
+                  <>
+                    <strong>{remainingPercent}%</strong> лимита
+                  </>
+                )
+              ) : (
+                <>
+                  <strong>{formatTokens(run.usage.total)}</strong> токенов
+                </>
+              )}
             </button>
             {showBudget && (
               <div className="mini-popover budget-popover">
-                <p className="popover-eyebrow">Текущий запуск</p>
-                <div className="budget-row">
-                  <span>Использовано</span>
-                  <strong>
-                    {run.usage.total.toLocaleString("ru-RU")} / {budget.toLocaleString("ru-RU")}
-                  </strong>
-                </div>
-                <div className="budget-meter" aria-label={`${usagePercent}% лимита использовано`}>
-                  <span style={{ width: `${usagePercent}%` }} />
-                </div>
-                <p>
-                  {apiStatus.provider === "codex"
-                    ? "Это справочная статистика Codex. Отдельной оплаты API нет — используется лимит вашей подписки ChatGPT."
-                    : "В токены уходят только реальные вызовы агентов. Анимация офиса и интерфейс работают локально."}
-                </p>
+                {apiStatus.provider === "codex" ? (
+                  <>
+                    <p className="popover-eyebrow">Подписка ChatGPT Pro</p>
+                    <div className="budget-row">
+                      <span>Осталось в окне</span>
+                      <strong>
+                        {remainingPercent == null ? "Данные недоступны" : `${remainingPercent}%`}
+                      </strong>
+                    </div>
+                    {subscriptionWindow && (
+                      <>
+                        <div
+                          className="budget-meter budget-meter--remaining"
+                          aria-label={`${remainingPercent}% лимита осталось`}
+                        >
+                          <span style={{ width: `${remainingPercent}%` }} />
+                        </div>
+                        <div className="usage-detail-row">
+                          <span>Обновится</span>
+                          <strong>{formatResetTime(subscriptionWindow.resetsAt)}</strong>
+                        </div>
+                      </>
+                    )}
+                    <div className="usage-detail-row">
+                      <span>Этот запуск</span>
+                      <strong>{run.usage.total.toLocaleString("ru-RU")} токенов</strong>
+                    </div>
+                    {apiStatus.accountUsage?.lifetimeTokens != null && (
+                      <div className="usage-detail-row">
+                        <span>Всего обработано</span>
+                        <strong>{formatLargeNumber(apiStatus.accountUsage.lifetimeTokens)}</strong>
+                      </div>
+                    )}
+                    <p>
+                      Подписка — это окно использования, а не кошелёк с фиксированным числом
+                      токенов. Поэтому остаток показан в процентах, а токены — как фактический
+                      расход.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="popover-eyebrow">Текущий запуск</p>
+                    <div className="budget-row">
+                      <span>Использовано</span>
+                      <strong>
+                        {run.usage.total.toLocaleString("ru-RU")} /{" "}
+                        {budget.toLocaleString("ru-RU")}
+                      </strong>
+                    </div>
+                    <div
+                      className="budget-meter"
+                      aria-label={`${usagePercent}% лимита использовано`}
+                    >
+                      <span style={{ width: `${usagePercent}%` }} />
+                    </div>
+                    <p>
+                      В токены уходят только реальные вызовы агентов. Анимация офиса и интерфейс
+                      работают локально.
+                    </p>
+                  </>
+                )}
               </div>
             )}
           </div>
