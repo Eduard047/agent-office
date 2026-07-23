@@ -6,6 +6,7 @@ import {
   getCodexStatus,
   handleLocalApiRequest,
   parseCodexJsonl,
+  routeRequest,
 } from "../server/codex-local.mjs";
 
 function parseEvents(response) {
@@ -56,6 +57,45 @@ test("extracts the structured final message and Codex usage", () => {
   });
 });
 
+test("routes simple requests to Luna without spending a model call on routing", () => {
+  const routing = routeRequest("Переведи это короткое предложение на английский.");
+
+  assert.equal(routing.model, "gpt-5.6-luna");
+  assert.equal(routing.effort, "none");
+  assert.equal(routing.roles, 3);
+  assert.equal(routing.automatic, true);
+});
+
+test("routes ordinary multi-step work to Terra", () => {
+  const routing = routeRequest(
+    "Исследуй варианты, сравни их и подготовь рекомендации для запуска продукта.",
+  );
+
+  assert.equal(routing.model, "gpt-5.6-terra");
+  assert.equal(routing.effort, "medium");
+  assert.equal(routing.roles, 4);
+});
+
+test("routes complex quality-first work to Sol", () => {
+  const routing = routeRequest(
+    "Спроектируй сложную архитектуру сервиса, проведи аудит безопасности и подготовь полную миграцию в продакш.",
+  );
+
+  assert.equal(routing.model, "gpt-5.6-sol");
+  assert.equal(routing.effort, "high");
+  assert.equal(routing.roles, 4);
+});
+
+test("respects manual model and reasoning power overrides including Ultra", () => {
+  const routing = routeRequest("Придумай короткое название.", "sol", "ultra");
+
+  assert.equal(routing.model, "gpt-5.6-sol");
+  assert.equal(routing.effort, "ultra");
+  assert.equal(routing.effortLabel, "Ультра");
+  assert.equal(routing.automatic, false);
+  assert.match(routing.reason, /вручную/);
+});
+
 test("streams a subscription-backed Codex run into office task events", async () => {
   const spawnImpl = (_command, args) => {
     assert.ok(args.includes("gpt-5.6-luna"));
@@ -104,7 +144,8 @@ test("streams a subscription-backed Codex run into office task events", async ()
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       goal: "Prepare a compact launch checklist",
-      mode: "eco",
+      model: "auto",
+      effort: "auto",
     }),
   });
   const response = await handleLocalApiRequest(request, {
@@ -118,6 +159,8 @@ test("streams a subscription-backed Codex run into office task events", async ()
   const events = await parseEvents(response);
 
   assert.equal(events[0].type, "run_started");
+  assert.equal(events[0].routing.modelLabel, "Luna");
+  assert.equal(events[0].routing.effort, "low");
   assert.equal(events[1].type, "plan_ready");
   assert.equal(events.filter((event) => event.type === "task_started").length, 3);
   assert.equal(events.filter((event) => event.type === "task_completed").length, 3);

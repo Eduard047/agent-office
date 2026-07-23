@@ -19,6 +19,22 @@ import { getApiStatus, streamRun } from "./api.js";
 
 const EMPTY_USAGE = { input: 0, output: 0, total: 0, cached: 0 };
 const STORAGE_KEY = "agent-office:last-run";
+const MODEL_OPTIONS = [
+  { id: "auto", label: "Auto", hint: "Сам выберет" },
+  { id: "luna", label: "Luna", hint: "Быстро" },
+  { id: "terra", label: "Terra", hint: "Баланс" },
+  { id: "sol", label: "Sol", hint: "Максимум" },
+];
+const EFFORT_OPTIONS = [
+  { id: "auto", label: "Авто" },
+  { id: "none", label: "Без размышлений" },
+  { id: "low", label: "Низкая" },
+  { id: "medium", label: "Средняя" },
+  { id: "high", label: "Высокая" },
+  { id: "xhigh", label: "Очень высокая" },
+  { id: "max", label: "Максимальная" },
+  { id: "ultra", label: "Ультра" },
+];
 
 const AGENT_SEED = [
   {
@@ -137,7 +153,12 @@ function ResultPanel({ run, onClose, onCopy, onDownload }) {
       </div>
       <div className="result-body">{run.result}</div>
       <div className="result-actions">
-        <span>{formatTokens(run.usage.total)} токенов</span>
+        <span>
+          {run.routing
+            ? `${run.routing.modelLabel} · ${run.routing.effortLabel} · `
+            : ""}
+          {formatTokens(run.usage.total)} токенов
+        </span>
         <button onClick={onCopy}>
           <CopyIcon size={17} />
           Копировать
@@ -159,9 +180,11 @@ export function App() {
     subscription: null,
     ecoModel: "",
     balancedModel: "",
+    solModel: "",
   });
   const [goal, setGoal] = useState("");
-  const [mode, setMode] = useState("eco");
+  const [modelChoice, setModelChoice] = useState("auto");
+  const [effortChoice, setEffortChoice] = useState("auto");
   const [budget, setBudget] = useState(6000);
   const [showBudget, setShowBudget] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
@@ -174,6 +197,7 @@ export function App() {
       lastRun || {
         status: "idle",
         goal: "",
+        routing: null,
         planSummary: "",
         tasks: [],
         usage: EMPTY_USAGE,
@@ -240,6 +264,7 @@ export function App() {
         ...current,
         status: "planning",
         goal: event.goal,
+        routing: event.routing,
         usage: event.usage,
       }));
     }
@@ -333,6 +358,7 @@ export function App() {
     setRun({
       status: "planning",
       goal: cleanGoal,
+      routing: null,
       planSummary: "",
       tasks: [],
       usage: EMPTY_USAGE,
@@ -344,7 +370,8 @@ export function App() {
     try {
       await streamRun({
         goal: cleanGoal,
-        mode,
+        model: modelChoice,
+        effort: effortChoice,
         budget,
         signal: controller.signal,
         onEvent: handleRunEvent,
@@ -496,7 +523,7 @@ export function App() {
           {run.status === "planning" && (
             <div className="planning-badge" role="status">
               <span />
-              Оркестратор собирает план…
+              Оркестратор выбирает модель и собирает план…
             </div>
           )}
 
@@ -613,25 +640,52 @@ export function App() {
               disabled={running}
             />
 
-            <div className="mode-switch" aria-label="Режим работы">
-              <button
-                type="button"
-                className={mode === "eco" ? "is-active" : ""}
-                onClick={() => setMode("eco")}
+            <div className="control-heading">
+              <span>Модель</span>
+              <small>{modelChoice === "auto" ? "офис решит сам" : "ручной выбор"}</small>
+            </div>
+            <div className="model-switch" aria-label="Выбор модели">
+              {MODEL_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={modelChoice === option.id ? "is-active" : ""}
+                  onClick={() => setModelChoice(option.id)}
+                  disabled={running}
+                  aria-pressed={modelChoice === option.id}
+                >
+                  {option.label}
+                  <small>{option.hint}</small>
+                </button>
+              ))}
+            </div>
+
+            <div className="power-control">
+              <div>
+                <label htmlFor="reasoning-power">Мощность</label>
+                <strong>
+                  {EFFORT_OPTIONS.find((option) => option.id === effortChoice)?.label}
+                </strong>
+              </div>
+              <input
+                id="reasoning-power"
+                type="range"
+                min="0"
+                max={EFFORT_OPTIONS.length - 1}
+                step="1"
+                value={EFFORT_OPTIONS.findIndex((option) => option.id === effortChoice)}
+                onChange={(event) =>
+                  setEffortChoice(EFFORT_OPTIONS[Number(event.target.value)].id)
+                }
                 disabled={running}
-              >
-                Экономно
-                <small>{apiStatus.ecoModel || "Luna · 3 роли"}</small>
-              </button>
-              <button
-                type="button"
-                className={mode === "balanced" ? "is-active" : ""}
-                onClick={() => setMode("balanced")}
-                disabled={running}
-              >
-                Точнее
-                <small>{apiStatus.balancedModel || "Terra · 4 роли"}</small>
-              </button>
+                aria-valuetext={
+                  EFFORT_OPTIONS.find((option) => option.id === effortChoice)?.label
+                }
+              />
+              <div className="power-scale" aria-hidden="true">
+                <span>Авто</span>
+                <span>Ultra</span>
+              </div>
             </div>
 
             {apiStatus.provider !== "codex" && (
@@ -674,6 +728,18 @@ export function App() {
             <div className="run-error" role="alert">
               <WarningCircleIcon size={20} />
               <span>{run.error}</span>
+            </div>
+          )}
+
+          {run.routing && (
+            <div className="route-decision" aria-live="polite">
+              <div>
+                <span>{run.routing.automatic ? "Auto-маршрут" : "Ручной маршрут"}</span>
+                <strong>
+                  {run.routing.modelLabel} · {run.routing.effortLabel}
+                </strong>
+              </div>
+              <p>{run.routing.reason}</p>
             </div>
           )}
 

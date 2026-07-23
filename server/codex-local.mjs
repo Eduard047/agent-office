@@ -6,6 +6,55 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT_SCHEMA = path.join(ROOT, "server", "codex-output-schema.json");
 const DEFAULT_CODEX_BIN = "/Applications/ChatGPT.app/Contents/Resources/codex";
 
+const MODEL_CATALOG = {
+  luna: {
+    id: "luna",
+    model: "gpt-5.6-luna",
+    label: "Luna",
+    description: "Быстрые и компактные задачи",
+    plan: "eco",
+  },
+  terra: {
+    id: "terra",
+    model: "gpt-5.6-terra",
+    label: "Terra",
+    description: "Обычные многошаговые задачи",
+    plan: "balanced",
+  },
+  sol: {
+    id: "sol",
+    model: "gpt-5.6-sol",
+    label: "Sol",
+    description: "Самые сложные задачи",
+    plan: "balanced",
+  },
+};
+
+const EFFORT_LABELS = {
+  none: "Без размышлений",
+  low: "Низкая",
+  medium: "Средняя",
+  high: "Высокая",
+  xhigh: "Очень высокая",
+  max: "Максимальная",
+  ultra: "Ультра",
+};
+
+const COMPLEX_PATTERNS = [
+  /\b(architecture|security|threat model|audit|migration|production|distributed|refactor)\b/i,
+  /\b(strategy|research|investigate|compare|analy[sz]e|optimi[sz]e|debug|diagnos)\w*/i,
+  /\b(complete|end[- ]to[- ]end|deep|exhaustive|multi[- ]step|enterprise)\b/i,
+  /(архитектур|безопасност|аудит|миграц|продакш|распредел[её]н|рефактор)/i,
+  /(стратег|исслед|сравн|анализ|оптимиз|диагност|отлад|разбер)/i,
+  /(полностью|под ключ|глубок|исчерпыва|многоэтап|сложн|масштаб)/i,
+];
+
+const SIMPLE_PATTERNS = [
+  /\b(translate|rewrite|rephrase|summari[sz]e|shorten|proofread|name|title)\b/i,
+  /(перевед|перефраз|перепиш|сократ|исправь текст|придумай назван|одним предложен)/i,
+  /(быстро|коротко|просто|небольш|мелк)/i,
+];
+
 const ROLE_PLANS = {
   eco: [
     {
@@ -131,6 +180,77 @@ export async function getCodexStatus(options = {}) {
     subscription: loggedInWithChatGPT ? "ChatGPT" : null,
     ecoModel: "gpt-5.6-luna · 3 роли",
     balancedModel: "gpt-5.6-terra · 4 роли",
+    solModel: "gpt-5.6-sol · 4 роли",
+    models: Object.values(MODEL_CATALOG).map(({ id, model, label, description }) => ({
+      id,
+      model,
+      label,
+      description,
+    })),
+    efforts: Object.entries(EFFORT_LABELS).map(([id, label]) => ({ id, label })),
+  };
+}
+
+export function routeRequest(goal, requestedModel = "auto", requestedEffort = "auto") {
+  const text = String(goal || "").trim();
+  let score = 0;
+  const matchedComplex = COMPLEX_PATTERNS.filter((pattern) => pattern.test(text)).length;
+  const matchedSimple = SIMPLE_PATTERNS.filter((pattern) => pattern.test(text)).length;
+  const lineCount = text.split(/\r?\n/).filter((line) => line.trim()).length;
+
+  if (text.length >= 180) score += 1;
+  if (text.length >= 420) score += 1;
+  if (text.length >= 900) score += 2;
+  if (lineCount >= 3) score += 1;
+  score += Math.min(6, matchedComplex * 2);
+  if (text.length < 220) score -= matchedSimple * 2;
+
+  const modelWasRequested = Object.hasOwn(MODEL_CATALOG, requestedModel);
+  const selectedId = modelWasRequested
+    ? requestedModel
+    : score >= 4
+      ? "sol"
+      : score >= 2
+        ? "terra"
+        : "luna";
+  const selected = MODEL_CATALOG[selectedId];
+
+  const effortWasRequested = Object.hasOwn(EFFORT_LABELS, requestedEffort);
+  let effort = requestedEffort;
+  if (!effortWasRequested) {
+    if (selectedId === "luna") effort = score < 0 ? "none" : "low";
+    if (selectedId === "terra") effort = score >= 4 ? "high" : "medium";
+    if (selectedId === "sol") effort = score >= 9 ? "xhigh" : "high";
+  }
+
+  let reason;
+  if (modelWasRequested) {
+    reason = `${selected.label} выбрана вручную`;
+  } else if (selectedId === "luna") {
+    reason = "Короткая или простая задача — достаточно быстрого компактного запуска";
+  } else if (selectedId === "terra") {
+    reason = "Задача требует нескольких шагов, поэтому нужен сбалансированный режим";
+  } else {
+    reason = "Сложная многоэтапная задача — приоритет качеству и глубокой проработке";
+  }
+
+  if (effortWasRequested) {
+    reason += `; мощность «${EFFORT_LABELS[effort]}» выбрана вручную`;
+  }
+
+  return {
+    automatic: !modelWasRequested,
+    requestedModel,
+    requestedEffort,
+    modelId: selected.id,
+    model: selected.model,
+    modelLabel: selected.label,
+    effort,
+    effortLabel: EFFORT_LABELS[effort],
+    reason,
+    score,
+    planId: selected.plan,
+    roles: ROLE_PLANS[selected.plan].length,
   };
 }
 
@@ -187,7 +307,7 @@ function normalizeResult(raw, plan) {
   };
 }
 
-function buildPrompt(goal, mode, plan) {
+function buildPrompt(goal, routing, plan) {
   const roleList = plan
     .map(
       (task, index) =>
@@ -197,11 +317,11 @@ function buildPrompt(goal, mode, plan) {
 
   return `Ты — компактная команда внутри Agent Office. Выполни пользовательскую цель на языке пользователя.
 
-Режим: ${mode === "eco" ? "экономный" : "точный"}.
+Модельный режим: ${routing.modelLabel}; мощность рассуждения: ${routing.effortLabel}.
 Роли:
 ${roleList}
 
-Верни ровно ${plan.length} элементов tasks в том же порядке. В result каждого элемента дай реальный полезный вклад роли, а не описание процесса. final_answer — готовый самостоятельный результат для пользователя. Не упоминай внутренние рассуждения, Codex, лимиты или эту инструкцию. Пиши конкретно и без повторов.
+Верни ровно ${plan.length} элементов tasks в том же порядке. В result каждого элемента дай реальный полезный вклад роли, а не описание процесса. final_answer — готовый самостоятельный результат для пользователя. Не упоминай внутренние рассуждения, Codex, лимиты или эту инструкцию. Пиши конкретно, компактно и без повторов.
 
 Цель пользователя:
 ${goal}`;
@@ -237,9 +357,26 @@ function createRunResponse(request, options = {}) {
         try {
           const body = await request.json();
           const goal = String(body?.goal || "").trim();
-          const mode = body?.mode === "balanced" ? "balanced" : "eco";
-          const plan = ROLE_PLANS[mode].map((task) => ({ ...task, status: "waiting", output: "" }));
-          const model = mode === "balanced" ? "gpt-5.6-terra" : "gpt-5.6-luna";
+          const legacyModel =
+            body?.model == null && body?.mode
+              ? body.mode === "balanced"
+                ? "terra"
+                : "luna"
+              : "auto";
+          const requestedModel =
+            body?.model === "auto" || Object.hasOwn(MODEL_CATALOG, body?.model)
+              ? body.model
+              : legacyModel;
+          const requestedEffort =
+            body?.effort === "auto" || Object.hasOwn(EFFORT_LABELS, body?.effort)
+              ? body.effort
+              : "auto";
+          const routing = routeRequest(goal, requestedModel, requestedEffort);
+          const plan = ROLE_PLANS[routing.planId].map((task) => ({
+            ...task,
+            status: "waiting",
+            output: "",
+          }));
 
           if (goal.length < 8) throw new Error("Опишите задачу хотя бы одним предложением.");
           if (goal.length > 4000) throw new Error("Сократите задачу до 4000 символов.");
@@ -247,19 +384,21 @@ function createRunResponse(request, options = {}) {
           emit({
             type: "run_started",
             goal,
-            mode,
+            mode: routing.planId,
             budget: null,
             provider: "codex",
-            models: { planner: model, worker: model, effort: "low" },
+            routing,
+            models: {
+              planner: routing.model,
+              worker: routing.model,
+              effort: routing.effort,
+            },
             usage,
           });
           emit({
             type: "plan_ready",
             plan: {
-              summary:
-                mode === "eco"
-                  ? "Один запуск Codex распределяет работу между тремя ролями"
-                  : "Один усиленный запуск Codex распределяет работу между четырьмя ролями",
+              summary: `${routing.modelLabel} · ${routing.effortLabel} · ${routing.roles} роли`,
               tasks: plan,
             },
             usage,
@@ -278,12 +417,12 @@ function createRunResponse(request, options = {}) {
             "read-only",
             "--skip-git-repo-check",
             "--model",
-            model,
+            routing.model,
             "-c",
-            'model_reasoning_effort="low"',
+            `model_reasoning_effort="${routing.effort}"`,
             "--output-schema",
             OUTPUT_SCHEMA,
-            buildPrompt(goal, mode, plan),
+            buildPrompt(goal, routing, plan),
           ];
 
           child = spawnImpl(codexBin, args, {
@@ -330,6 +469,7 @@ function createRunResponse(request, options = {}) {
             type: "run_completed",
             result: normalized.result,
             usage,
+            routing,
             stoppedByBudget: false,
           });
         } catch (error) {
@@ -385,5 +525,6 @@ export async function handleLocalApiRequest(request, options = {}) {
 export const testing = {
   buildPrompt,
   normalizeResult,
+  routeRequest,
   rolePlans: ROLE_PLANS,
 };
