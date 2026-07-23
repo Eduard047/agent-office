@@ -14,11 +14,18 @@ function apiPlugin(env) {
         try {
           const chunks = [];
           for await (const chunk of nodeRequest) chunks.push(chunk);
+          const abortController = new AbortController();
+          const abortUpstream = () => abortController.abort();
+          nodeRequest.once("aborted", abortUpstream);
+          nodeResponse.once("close", () => {
+            if (!nodeResponse.writableEnded) abortUpstream();
+          });
           const request = new Request(requestUrl, {
             method: nodeRequest.method,
             headers: nodeRequest.headers,
             body: chunks.length ? Buffer.concat(chunks) : undefined,
             duplex: chunks.length ? "half" : undefined,
+            signal: abortController.signal,
           });
           const response = await handleApiRequest(request, env);
           if (!response) return next();
