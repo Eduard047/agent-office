@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { existsSync, readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import {
@@ -131,8 +132,13 @@ test("respects manual model and reasoning power overrides including Ultra", () =
 });
 
 test("streams a subscription-backed Codex run into office task events", async () => {
+  let attachedImagePath = "";
   const spawnImpl = (_command, args) => {
     assert.ok(args.includes("gpt-5.6-luna"));
+    const imageFlag = args.indexOf("--image");
+    assert.ok(imageFlag > -1);
+    attachedImagePath = args[imageFlag + 1];
+    assert.equal(readFileSync(attachedImagePath).subarray(0, 3).toString(), "GIF");
     const child = new EventEmitter();
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
@@ -178,8 +184,15 @@ test("streams a subscription-backed Codex run into office task events", async ()
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       goal: "Prepare a compact launch checklist",
-      model: "auto",
+      model: "luna",
       effort: "auto",
+      images: [
+        {
+          name: "reference.gif",
+          dataUrl:
+            "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+        },
+      ],
     }),
   });
   const response = await handleLocalApiRequest(request, {
@@ -202,4 +215,12 @@ test("streams a subscription-backed Codex run into office task events", async ()
   assert.equal(events.at(-1).type, "run_completed");
   assert.equal(events.at(-1).result, "Final answer");
   assert.equal(events.at(-1).usage.total, 1600);
+  assert.equal(existsSync(attachedImagePath), false);
+});
+
+test("uses visual context to choose at least Terra in auto mode", () => {
+  const routing = routeRequest("Что здесь изображено?", "auto", "auto", 1);
+
+  assert.equal(routing.model, "gpt-5.6-terra");
+  assert.match(routing.reason, /изображен/i);
 });

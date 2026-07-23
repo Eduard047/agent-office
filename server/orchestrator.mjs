@@ -1,4 +1,7 @@
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
+const MAX_IMAGE_COUNT = 4;
+const MAX_DATA_URL_LENGTH = 11 * 1024 * 1024;
+const MAX_TOTAL_DATA_URL_LENGTH = 32 * 1024 * 1024;
 
 const AGENTS = {
   researcher: { agentId: "ava", name: "Ava", label: "Исследует" },
@@ -73,6 +76,48 @@ function getModels(env, mode) {
     maxTasks: 3,
     workerOutput: 760,
   };
+}
+
+function normalizeInputImages(value) {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  if (value.length > MAX_IMAGE_COUNT) {
+    throw new Error(`Можно прикрепить не больше ${MAX_IMAGE_COUNT} изображений.`);
+  }
+
+  let totalLength = 0;
+  return value.map((attachment, index) => {
+    const dataUrl = String(attachment?.dataUrl || "");
+    if (
+      !/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(dataUrl)
+    ) {
+      throw new Error(`Изображение ${index + 1} имеет неподдерживаемый формат.`);
+    }
+    if (dataUrl.length > MAX_DATA_URL_LENGTH) {
+      throw new Error(`Изображение ${index + 1} больше 8 МБ.`);
+    }
+    totalLength += dataUrl.length;
+    if (totalLength > MAX_TOTAL_DATA_URL_LENGTH) {
+      throw new Error("Общий размер изображений больше 24 МБ.");
+    }
+    return dataUrl;
+  });
+}
+
+function multimodalInput(text, images = []) {
+  if (!images.length) return text;
+  return [
+    {
+      role: "user",
+      content: [
+        { type: "input_text", text },
+        ...images.map((imageUrl) => ({
+          type: "input_image",
+          image_url: imageUrl,
+          detail: "auto",
+        })),
+      ],
+    },
+  ];
 }
 
 function extractText(response) {
@@ -202,7 +247,12 @@ async function executeRun({ request, env, controller, fetchImpl }) {
 
   try {
     const body = await request.json();
-    const goal = String(body?.goal || "").trim();
+    const images = normalizeInputImages(body?.images);
+    const goal =
+      String(body?.goal || "").trim() ||
+      (images.length
+        ? "Проанализируй приложенные изображения и подготовь полезный результат."
+        : "");
     const mode = body?.mode === "balanced" ? "balanced" : "eco";
     const budget = Math.max(2000, Math.min(24000, Number(body?.budget) || 8000));
     const apiKey = getEnv(env, "OPENAI_API_KEY");
@@ -247,7 +297,7 @@ async function executeRun({ request, env, controller, fetchImpl }) {
           "Ты экономный оркестратор маленькой команды. Разбей цель на минимальное число самостоятельных задач. " +
           `Режим ${mode}: создай ${mode === "balanced" ? "3–4" : "2–3"} задачи. ` +
           "Последняя задача — проверка и сборка полезного итогового ответа. Не повторяй контекст и не придумывай внешние действия.",
-        input: `Цель пользователя:\n${goal}`,
+        input: multimodalInput(`Цель пользователя:\n${goal}`, images),
       },
     });
 
@@ -288,9 +338,11 @@ async function executeRun({ request, env, controller, fetchImpl }) {
           instructions:
             `Ты агент роли ${task.role}. Выполни только свою задачу и дай готовый полезный результат. ` +
             "Отвечай на языке пользователя. Не описывай внутренние рассуждения. Будь конкретным и компактным.",
-          input:
+          input: multimodalInput(
             `Общая цель:\n${goal}\n\nТвоя задача:\n${task.title}\n${task.instructions}` +
-            (context ? `\n\nРезультаты зависимых задач:\n${context}` : ""),
+              (context ? `\n\nРезультаты зависимых задач:\n${context}` : ""),
+            index === 0 ? images : [],
+          ),
         },
       });
 
@@ -376,5 +428,7 @@ export async function handleApiRequest(request, env, options = {}) {
 export const testing = {
   extractText,
   extractUsage,
+  multimodalInput,
+  normalizeInputImages,
   normalizePlan,
 };

@@ -102,6 +102,13 @@ test("streams a real plan, task progress, token usage, and final result", async 
       goal: "Prepare a short launch checklist",
       mode: "eco",
       budget: 6000,
+      images: [
+        {
+          name: "reference.gif",
+          dataUrl:
+            "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+        },
+      ],
     }),
   });
   const response = await handleApiRequest(
@@ -114,6 +121,9 @@ test("streams a real plan, task progress, token usage, and final result", async 
   assert.equal(calls.length, 3);
   assert.equal(calls[0].model, "gpt-5.6-terra");
   assert.equal(calls[1].model, "gpt-5.6-luna");
+  assert.equal(calls[0].input[0].content[1].type, "input_image");
+  assert.equal(calls[1].input[0].content[1].type, "input_image");
+  assert.equal(typeof calls[2].input, "string");
   assert.deepEqual(
     events.map((event) => event.type),
     [

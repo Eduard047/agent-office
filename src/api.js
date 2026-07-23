@@ -56,14 +56,22 @@ export async function getApiStatus() {
   return fetchStatus();
 }
 
-export async function streamRun({ goal, model, effort, budget, signal, onEvent }) {
+export async function streamRun({
+  goal,
+  images = [],
+  model,
+  effort,
+  budget,
+  signal,
+  onEvent,
+}) {
   const response = await fetch(`${apiOrigin}/api/runs`, {
     method: "POST",
     headers: {
       accept: "application/x-ndjson",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ goal, model, effort, budget }),
+    body: JSON.stringify({ goal, images, model, effort, budget }),
     signal,
   });
 

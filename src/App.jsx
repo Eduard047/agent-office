@@ -5,9 +5,11 @@ import {
   CodeIcon,
   CopyIcon,
   DownloadSimpleIcon,
+  ImageSquareIcon,
   ListBulletsIcon,
   MagnifyingGlassIcon,
   PaintBrushIcon,
+  PaperclipIcon,
   PlayIcon,
   StopIcon,
   UserIcon,
@@ -19,6 +21,15 @@ import { getApiStatus, LOCAL_OFFICE_URL, streamRun } from "./api.js";
 
 const EMPTY_USAGE = { input: 0, output: 0, total: 0, cached: 0 };
 const STORAGE_KEY = "agent-office:last-run";
+const SUPPORTED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+const MAX_IMAGE_COUNT = 4;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024;
 const MODEL_OPTIONS = [
   { id: "auto", label: "Auto", hint: "Сам выберет" },
   { id: "luna", label: "Luna", hint: "Быстро" },
@@ -83,6 +94,21 @@ function formatTokens(value) {
 
 function formatExactTokens(value) {
   return `${Number(value || 0).toLocaleString("ru-RU")} токенов`;
+}
+
+function formatFileSize(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`Не удалось прочитать ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatResetTime(timestamp) {
@@ -206,6 +232,8 @@ export function App() {
   const [connectingBridge, setConnectingBridge] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [showResult, setShowResult] = useState(Boolean(loadLastRun()));
+  const [attachments, setAttachments] = useState([]);
+  const [draggingImages, setDraggingImages] = useState(false);
   const [toast, setToast] = useState("");
   const [run, setRun] = useState(() => {
     const lastRun = loadLastRun();
@@ -224,6 +252,8 @@ export function App() {
     );
   });
   const abortRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const attachmentsRef = useRef([]);
 
   useEffect(() => {
     getApiStatus()
@@ -237,6 +267,19 @@ export function App() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(run));
     }
   }, [run]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
+
+  useEffect(
+    () => () => {
+      attachmentsRef.current.forEach((attachment) =>
+        URL.revokeObjectURL(attachment.previewUrl),
+      );
+    },
+    [],
+  );
 
   const running = ["planning", "running"].includes(run.status);
   const agents = useMemo(
@@ -293,6 +336,63 @@ export function App() {
     } finally {
       setConnectingBridge(false);
     }
+  };
+
+  const addImageFiles = (fileList) => {
+    if (running) return;
+    const incoming = Array.from(fileList || []);
+    if (!incoming.length) return;
+
+    const unsupported = incoming.find((file) => !SUPPORTED_IMAGE_TYPES.has(file.type));
+    if (unsupported) {
+      return notify("Поддерживаются PNG, JPG, WebP и GIF");
+    }
+    const oversized = incoming.find((file) => file.size > MAX_IMAGE_BYTES);
+    if (oversized) {
+      return notify(`${oversized.name}: изображение больше 8 МБ`);
+    }
+    if (attachments.length + incoming.length > MAX_IMAGE_COUNT) {
+      return notify(`Можно прикрепить не больше ${MAX_IMAGE_COUNT} изображений`);
+    }
+    const totalBytes =
+      attachments.reduce((sum, attachment) => sum + attachment.file.size, 0) +
+      incoming.reduce((sum, file) => sum + file.size, 0);
+    if (totalBytes > MAX_TOTAL_IMAGE_BYTES) {
+      return notify("Общий размер изображений не должен превышать 24 МБ");
+    }
+
+    setAttachments((current) => [
+      ...current,
+      ...incoming.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      })),
+    ]);
+  };
+
+  const removeAttachment = (id) => {
+    setAttachments((current) =>
+      current.filter((attachment) => {
+        if (attachment.id === id) URL.revokeObjectURL(attachment.previewUrl);
+        return attachment.id !== id;
+      }),
+    );
+  };
+
+  const handleComposerPaste = (event) => {
+    const pastedImages = Array.from(event.clipboardData?.files || []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (!pastedImages.length) return;
+    event.preventDefault();
+    addImageFiles(pastedImages);
+  };
+
+  const handleImageDrop = (event) => {
+    event.preventDefault();
+    setDraggingImages(false);
+    addImageFiles(event.dataTransfer?.files);
   };
 
   const handleRunEvent = (event) => {
@@ -377,8 +477,12 @@ export function App() {
 
   const startRun = async (event) => {
     event.preventDefault();
-    const cleanGoal = goal.trim();
-    if (!cleanGoal) return notify("Сначала опишите задачу");
+    const cleanGoal =
+      goal.trim() ||
+      (attachments.length
+        ? "Проанализируй приложенные изображения и подготовь полезный результат."
+        : "");
+    if (!cleanGoal) return notify("Опишите задачу или прикрепите изображение");
     if (!apiStatus.configured) {
       return notify(
         apiStatus.provider === "codex"
@@ -405,8 +509,17 @@ export function App() {
     });
 
     try {
+      const images = await Promise.all(
+        attachments.map(async ({ file }) => ({
+          name: file.name || "image",
+          type: file.type,
+          size: file.size,
+          dataUrl: await readFileAsDataUrl(file),
+        })),
+      );
       await streamRun({
         goal: cleanGoal,
+        images,
         model: modelChoice,
         effort: effortChoice,
         budget,
@@ -672,12 +785,13 @@ export function App() {
                   <div className="agent-progress">
                     <span
                       style={{
-                        width:
+                        transform: `scaleX(${
                           selectedAgent.status === "done"
-                            ? "100%"
+                            ? 1
                             : selectedAgent.status === "working"
-                              ? "58%"
-                              : "8%",
+                              ? 0.58
+                              : 0.08
+                        })`,
                       }}
                     />
                   </div>
@@ -760,14 +874,84 @@ export function App() {
 
           <form className="run-form" onSubmit={startRun}>
             <label htmlFor="run-goal">Задача для команды</label>
-            <textarea
-              id="run-goal"
-              value={goal}
-              onChange={(event) => setGoal(event.target.value)}
-              placeholder="Например: придумай структуру лендинга и подготовь готовый текст…"
-              rows={4}
-              disabled={running}
-            />
+            <div
+              className={`composer${draggingImages ? " is-dragging" : ""}`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                if (!running) setDraggingImages(true);
+              }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) {
+                  setDraggingImages(false);
+                }
+              }}
+              onDrop={handleImageDrop}
+            >
+              {attachments.length > 0 && (
+                <div className="attachment-strip" aria-label="Прикреплённые изображения">
+                  {attachments.map((attachment) => (
+                    <div className="attachment-card" key={attachment.id}>
+                      <img src={attachment.previewUrl} alt="" />
+                      <span>
+                        <strong>{attachment.file.name || "Изображение"}</strong>
+                        <small>{formatFileSize(attachment.file.size)}</small>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(attachment.id)}
+                        disabled={running}
+                        aria-label={`Удалить ${attachment.file.name || "изображение"}`}
+                      >
+                        <XIcon size={13} weight="bold" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <textarea
+                id="run-goal"
+                value={goal}
+                onChange={(event) => setGoal(event.target.value)}
+                onPaste={handleComposerPaste}
+                placeholder="Опишите задачу, вставьте скриншот ⌘V или перетащите изображение…"
+                rows={4}
+                disabled={running}
+              />
+
+              <div className="composer-footer">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  multiple
+                  hidden
+                  disabled={running}
+                  onChange={(event) => {
+                    addImageFiles(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className="attach-button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={running || attachments.length >= MAX_IMAGE_COUNT}
+                >
+                  <PaperclipIcon size={16} weight="bold" />
+                  Добавить изображение
+                </button>
+                <span>{attachments.length}/{MAX_IMAGE_COUNT} · до 8 МБ</span>
+              </div>
+
+              {draggingImages && (
+                <div className="drop-overlay" aria-hidden="true">
+                  <ImageSquareIcon size={25} weight="duotone" />
+                  <strong>Отпустите изображение</strong>
+                </div>
+              )}
+            </div>
 
             <div className="control-heading">
               <span>Модель</span>

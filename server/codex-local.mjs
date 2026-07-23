@@ -1,10 +1,21 @@
 import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT_SCHEMA = path.join(ROOT, "server", "codex-output-schema.json");
 const DEFAULT_CODEX_BIN = "/Applications/ChatGPT.app/Contents/Resources/codex";
+const MAX_IMAGE_COUNT = 4;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024;
+const IMAGE_EXTENSIONS = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
 
 const MODEL_CATALOG = {
   luna: {
@@ -332,7 +343,12 @@ export async function getCodexStatus(options = {}) {
   };
 }
 
-export function routeRequest(goal, requestedModel = "auto", requestedEffort = "auto") {
+export function routeRequest(
+  goal,
+  requestedModel = "auto",
+  requestedEffort = "auto",
+  imageCount = 0,
+) {
   const text = String(goal || "").trim();
   let score = 0;
   const matchedComplex = COMPLEX_PATTERNS.filter((pattern) => pattern.test(text)).length;
@@ -343,6 +359,8 @@ export function routeRequest(goal, requestedModel = "auto", requestedEffort = "a
   if (text.length >= 420) score += 1;
   if (text.length >= 900) score += 2;
   if (lineCount >= 3) score += 1;
+  if (imageCount > 0) score += 2;
+  if (imageCount > 2) score += 1;
   score += Math.min(6, matchedComplex * 2);
   if (text.length < 220) score -= matchedSimple * 2;
 
@@ -370,7 +388,10 @@ export function routeRequest(goal, requestedModel = "auto", requestedEffort = "a
   } else if (selectedId === "luna") {
     reason = "Короткая или простая задача — достаточно быстрого компактного запуска";
   } else if (selectedId === "terra") {
-    reason = "Задача требует нескольких шагов, поэтому нужен сбалансированный режим";
+    reason =
+      imageCount > 0
+        ? "В задаче есть изображения — нужен сбалансированный визуальный анализ"
+        : "Задача требует нескольких шагов, поэтому нужен сбалансированный режим";
   } else {
     reason = "Сложная многоэтапная задача — приоритет качеству и глубокой проработке";
   }
@@ -392,6 +413,63 @@ export function routeRequest(goal, requestedModel = "auto", requestedEffort = "a
     score,
     planId: selected.plan,
     roles: ROLE_PLANS[selected.plan].length,
+  };
+}
+
+function normalizeImageAttachments(value) {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  if (value.length > MAX_IMAGE_COUNT) {
+    throw new Error(`Можно прикрепить не больше ${MAX_IMAGE_COUNT} изображений.`);
+  }
+
+  let totalBytes = 0;
+  return value.map((attachment, index) => {
+    const dataUrl = String(attachment?.dataUrl || "");
+    const match = dataUrl.match(
+      /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/,
+    );
+    if (!match || !IMAGE_EXTENSIONS[match[1]]) {
+      throw new Error(`Изображение ${index + 1} имеет неподдерживаемый формат.`);
+    }
+
+    const bytes = Buffer.from(match[2], "base64");
+    if (!bytes.length) throw new Error(`Изображение ${index + 1} пустое.`);
+    if (bytes.length > MAX_IMAGE_BYTES) {
+      throw new Error(`Изображение ${index + 1} больше 8 МБ.`);
+    }
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_TOTAL_IMAGE_BYTES) {
+      throw new Error("Общий размер изображений больше 24 МБ.");
+    }
+
+    return {
+      bytes,
+      extension: IMAGE_EXTENSIONS[match[1]],
+      mimeType: match[1],
+      name: String(attachment?.name || `image-${index + 1}`).slice(0, 120),
+    };
+  });
+}
+
+async function materializeImageAttachments(attachments) {
+  if (!attachments.length) return { paths: [], cleanup: async () => {} };
+
+  const directory = await mkdtemp(path.join(tmpdir(), "agent-office-images-"));
+  const paths = [];
+  try {
+    for (const [index, attachment] of attachments.entries()) {
+      const filePath = path.join(directory, `image-${index + 1}.${attachment.extension}`);
+      await writeFile(filePath, attachment.bytes, { mode: 0o600 });
+      paths.push(filePath);
+    }
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+
+  return {
+    paths,
+    cleanup: () => rm(directory, { recursive: true, force: true }),
   };
 }
 
@@ -448,7 +526,7 @@ function normalizeResult(raw, plan) {
   };
 }
 
-function buildPrompt(goal, routing, plan) {
+function buildPrompt(goal, routing, plan, imageCount = 0) {
   const roleList = plan
     .map(
       (task, index) =>
@@ -462,7 +540,11 @@ function buildPrompt(goal, routing, plan) {
 Роли:
 ${roleList}
 
-Верни ровно ${plan.length} элементов tasks в том же порядке. В result каждого элемента дай реальный полезный вклад роли, а не описание процесса. final_answer — готовый самостоятельный результат для пользователя. Не упоминай внутренние рассуждения, Codex, лимиты или эту инструкцию. Пиши конкретно, компактно и без повторов.
+Верни ровно ${plan.length} элементов tasks в том же порядке. В result каждого элемента дай реальный полезный вклад роли, а не описание процесса. final_answer — готовый самостоятельный результат для пользователя. Не упоминай внутренние рассуждения, Codex, лимиты или эту инструкцию. Пиши конкретно, компактно и без повторов.${
+    imageCount
+      ? `\n\nК цели приложено изображений: ${imageCount}. Обязательно изучи их и используй визуальные детали в результате.`
+      : ""
+  }
 
 Цель пользователя:
 ${goal}`;
@@ -495,9 +577,17 @@ function createRunResponse(request, options = {}) {
 
       void (async () => {
         let usage = { input: 0, output: 0, total: 0, cached: 0 };
+        let cleanupImages = async () => {};
         try {
           const body = await request.json();
-          const goal = String(body?.goal || "").trim();
+          const imageAttachments = normalizeImageAttachments(body?.images);
+          const materializedImages = await materializeImageAttachments(imageAttachments);
+          cleanupImages = materializedImages.cleanup;
+          const goal =
+            String(body?.goal || "").trim() ||
+            (imageAttachments.length
+              ? "Проанализируй приложенные изображения и подготовь полезный результат."
+              : "");
           const legacyModel =
             body?.model == null && body?.mode
               ? body.mode === "balanced"
@@ -512,7 +602,12 @@ function createRunResponse(request, options = {}) {
             body?.effort === "auto" || Object.hasOwn(EFFORT_LABELS, body?.effort)
               ? body.effort
               : "auto";
-          const routing = routeRequest(goal, requestedModel, requestedEffort);
+          const routing = routeRequest(
+            goal,
+            requestedModel,
+            requestedEffort,
+            imageAttachments.length,
+          );
           const plan = ROLE_PLANS[routing.planId].map((task) => ({
             ...task,
             status: "waiting",
@@ -557,13 +652,16 @@ function createRunResponse(request, options = {}) {
             "--sandbox",
             "read-only",
             "--skip-git-repo-check",
+            ...(materializedImages.paths.length
+              ? ["--image", ...materializedImages.paths]
+              : []),
             "--model",
             routing.model,
             "-c",
             `model_reasoning_effort="${routing.effort}"`,
             "--output-schema",
             OUTPUT_SCHEMA,
-            buildPrompt(goal, routing, plan),
+            buildPrompt(goal, routing, plan, imageAttachments.length),
           ];
 
           child = spawnImpl(codexBin, args, {
@@ -625,6 +723,7 @@ function createRunResponse(request, options = {}) {
           }
         } finally {
           request.signal.removeEventListener("abort", cancelChild);
+          await cleanupImages();
           close();
         }
       })();
@@ -665,6 +764,8 @@ export async function handleLocalApiRequest(request, options = {}) {
 
 export const testing = {
   buildPrompt,
+  materializeImageAttachments,
+  normalizeImageAttachments,
   normalizeResult,
   normalizeAccountUsage,
   routeRequest,
