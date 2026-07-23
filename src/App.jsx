@@ -620,7 +620,11 @@ export function App() {
                     <strong>{remainingPercent}%</strong> лимита
                   </>
                 )
-              ) : apiStatus.provider === "static" ? (
+              ) : apiStatus.provider === "codex" ? (
+                <>
+                  <strong>Pro</strong> войти
+                </>
+              ) : !apiStatus.configured ? (
                 <>
                   <strong>Mac</strong> скачать
                 </>
@@ -679,7 +683,7 @@ export function App() {
                       расход.
                     </p>
                   </>
-                ) : apiStatus.provider === "static" ? (
+                ) : !apiStatus.configured ? (
                   <>
                     <p className="popover-eyebrow">Автономное приложение</p>
                     <p>
@@ -995,7 +999,7 @@ export function App() {
               </div>
             </div>
 
-            {apiStatus.provider === "api" && (
+            {apiStatus.provider === "api" && apiStatus.configured && (
               <div className="budget-control">
                 <div>
                   <label htmlFor="token-budget">Мягкий лимит</label>
