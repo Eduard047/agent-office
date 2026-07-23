@@ -4,11 +4,6 @@ import react from "@vitejs/plugin-react";
 import { handleLocalApiRequest } from "./server/codex-local.mjs";
 import { handleApiRequest } from "./server/orchestrator.mjs";
 
-const TRUSTED_BROWSER_ORIGINS = new Set([
-  "https://eduard047.github.io",
-  "https://eduard-agent-office.martynenkoeduard1.chatgpt.site",
-]);
-
 function apiPlugin(env) {
   return {
     name: "agent-office-api",
@@ -18,19 +13,6 @@ function apiPlugin(env) {
         if (!requestUrl.pathname.startsWith("/api/")) return next();
 
         try {
-          const requestOrigin = nodeRequest.headers.origin;
-          if (requestOrigin && TRUSTED_BROWSER_ORIGINS.has(requestOrigin)) {
-            nodeResponse.setHeader("access-control-allow-origin", requestOrigin);
-            nodeResponse.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
-            nodeResponse.setHeader("access-control-allow-headers", "accept, content-type");
-            nodeResponse.setHeader("access-control-allow-private-network", "true");
-            nodeResponse.setHeader("vary", "Origin");
-          }
-          if (nodeRequest.method === "OPTIONS") {
-            nodeResponse.statusCode = 204;
-            return nodeResponse.end();
-          }
-
           const chunks = [];
           for await (const chunk of nodeRequest) chunks.push(chunk);
           const abortController = new AbortController();

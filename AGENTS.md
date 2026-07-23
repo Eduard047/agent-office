@@ -16,3 +16,4 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 - The office is the primary interface. Agent details appear contextually after selecting a person.
 - Token use should stay visible but unobtrusive, and the prototype should reinforce that idle visual activity does not consume tokens.
 - The selected visual source of truth is `design/selected-reference.png`: compact isometric office on the left, four floating agent labels, a glowing handoff path, and a persistent three-card task rail on the right.
+- Never present the published website as autonomous when it depends on a local Agent Office process. Clearly separate a true hosted runtime from a local companion, and do not make the public site search the user's Mac as its primary execution path.

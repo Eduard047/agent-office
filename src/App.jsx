@@ -17,7 +17,7 @@ import {
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { getApiStatus, LOCAL_OFFICE_URL, streamRun } from "./api.js";
+import { getApiStatus, MAC_APP_DOWNLOAD_URL, streamRun } from "./api.js";
 
 const EMPTY_USAGE = { input: 0, output: 0, total: 0, cached: 0 };
 const STORAGE_KEY = "agent-office:last-run";
@@ -229,7 +229,6 @@ export function App() {
   const [budget, setBudget] = useState(6000);
   const [showBudget, setShowBudget] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
-  const [connectingBridge, setConnectingBridge] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [showResult, setShowResult] = useState(Boolean(loadLastRun()));
   const [attachments, setAttachments] = useState([]);
@@ -319,23 +318,6 @@ export function App() {
   const notify = (message) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
-  };
-
-  const connectLocalCodex = async () => {
-    setConnectingBridge(true);
-    try {
-      const status = await getApiStatus();
-      setApiStatus({ ...status, loading: false });
-      notify(
-        status.configured
-          ? "Локальный Codex подключён"
-          : "Codex не найден — проверьте, что локальная версия открыта",
-      );
-    } catch {
-      notify("Не удалось подключиться к локальному Codex");
-    } finally {
-      setConnectingBridge(false);
-    }
   };
 
   const addImageFiles = (fileList) => {
@@ -640,7 +622,7 @@ export function App() {
                 )
               ) : apiStatus.provider === "static" ? (
                 <>
-                  <strong>Демо</strong> онлайн
+                  <strong>Mac</strong> скачать
                 </>
               ) : (
                 <>
@@ -696,6 +678,20 @@ export function App() {
                       токенов. Поэтому остаток показан в процентах, а токены — как фактический
                       расход.
                     </p>
+                  </>
+                ) : apiStatus.provider === "static" ? (
+                  <>
+                    <p className="popover-eyebrow">Автономное приложение</p>
+                    <p>
+                      Запускает офис и Codex Pro прямо на вашем Mac. Локальный проект
+                      и dev-сервер не нужны.
+                    </p>
+                    <a
+                      className="bridge-button bridge-button--primary"
+                      href={MAC_APP_DOWNLOAD_URL}
+                    >
+                      Скачать для Apple Silicon
+                    </a>
                   </>
                 ) : (
                   <>
@@ -841,7 +837,9 @@ export function App() {
               <WarningCircleIcon size={21} weight="fill" />
               <div>
                 <strong>
-                  {apiStatus.provider === "codex" ? "Нужно войти в Codex" : "Локальный режим"}
+                  {apiStatus.provider === "codex"
+                    ? "Нужно войти в Codex"
+                    : "Agent Office для Mac"}
                 </strong>
                 {apiStatus.provider === "codex" ? (
                   <p>
@@ -850,21 +848,17 @@ export function App() {
                 ) : (
                   <>
                     <p>
-                      GitHub Pages не всегда может обратиться к Mac из-за защиты браузера.
-                      Откройте рабочий офис — он сразу использует вашу подписку Codex Pro.
+                      Сайт показывает интерфейс, но не ищет сервер на вашем Mac. Скачайте
+                      автономное приложение: оно само запускает офис и использует вашу
+                      подписку ChatGPT Pro.
                     </p>
                     <div className="bridge-actions">
-                      <a className="bridge-button bridge-button--primary" href={LOCAL_OFFICE_URL}>
-                        Открыть рабочий офис
-                      </a>
-                      <button
-                        type="button"
-                        className="bridge-button"
-                        onClick={connectLocalCodex}
-                        disabled={connectingBridge}
+                      <a
+                        className="bridge-button bridge-button--primary"
+                        href={MAC_APP_DOWNLOAD_URL}
                       >
-                        {connectingBridge ? "Проверяю…" : "Подключить здесь"}
-                      </button>
+                        Скачать для Mac
+                      </a>
                     </div>
                   </>
                 )}

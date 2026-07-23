@@ -1,18 +1,11 @@
-const LOCAL_BRIDGE_ORIGINS = [
-  "http://127.0.0.1:4173",
-  "http://localhost:4173",
-  "http://192.168.50.99:4173",
-];
+export const MAC_APP_DOWNLOAD_URL =
+  "https://github.com/Eduard047/agent-office/releases/download/v0.1.0/Agent-Office-macOS-arm64.zip";
 
-export const LOCAL_OFFICE_URL = LOCAL_BRIDGE_ORIGINS[0];
-
-let apiOrigin = "";
-
-async function fetchStatus(origin = "", timeoutMs = 3000) {
+async function fetchStatus(timeoutMs = 3000) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(`${origin}/api/status`, {
+    const response = await fetch("/api/status", {
       headers: { accept: "application/json" },
       signal: controller.signal,
     });
@@ -30,29 +23,14 @@ export async function getApiStatus() {
   const hostedStatic = window.location.hostname.endsWith("github.io");
 
   if (hostedStatic) {
-    for (const origin of LOCAL_BRIDGE_ORIGINS) {
-      try {
-        const status = await fetchStatus(origin, 1800);
-        if (status?.provider === "codex") {
-          apiOrigin = origin;
-          return { ...status, bridgeOrigin: origin };
-        }
-      } catch {
-        // Try the next local address. Browsers may block one loopback alias.
-      }
-    }
-
-    apiOrigin = "";
     return {
       configured: false,
       provider: "static",
       subscription: null,
       accountUsage: null,
-      bridgeOrigin: null,
     };
   }
 
-  apiOrigin = "";
   return fetchStatus();
 }
 
@@ -65,7 +43,7 @@ export async function streamRun({
   signal,
   onEvent,
 }) {
-  const response = await fetch(`${apiOrigin}/api/runs`, {
+  const response = await fetch("/api/runs", {
     method: "POST",
     headers: {
       accept: "application/x-ndjson",
