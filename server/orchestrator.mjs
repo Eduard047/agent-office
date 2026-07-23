@@ -360,6 +360,7 @@ export async function handleApiRequest(request, env, options = {}) {
   if (url.pathname === "/api/status" && request.method === "GET") {
     return json({
       configured: Boolean(getEnv(env, "OPENAI_API_KEY")),
+      provider: "api",
       ecoModel: getModels(env, "eco").worker,
       balancedModel: getModels(env, "balanced").worker,
     });

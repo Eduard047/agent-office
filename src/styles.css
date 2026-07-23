@@ -979,6 +979,7 @@ textarea:focus-visible {
 }
 
 .setup-notice,
+.subscription-notice,
 .run-error {
   display: flex;
   gap: 10px;
@@ -994,6 +995,7 @@ textarea:focus-visible {
 }
 
 .setup-notice > svg,
+.subscription-notice > svg,
 .run-error > svg {
   flex: 0 0 auto;
   margin-top: 1px;
@@ -1002,6 +1004,24 @@ textarea:focus-visible {
 .setup-notice strong {
   display: block;
   font-size: 13px;
+}
+
+.subscription-notice {
+  margin-bottom: 14px;
+  border-color: #cfe3c3;
+  background: #f1f8ec;
+  color: #426b32;
+}
+
+.subscription-notice strong {
+  display: block;
+  font-size: 13px;
+}
+
+.subscription-notice p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .setup-notice p {

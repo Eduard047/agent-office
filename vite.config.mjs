@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { handleLocalApiRequest } from "./server/codex-local.mjs";
 import { handleApiRequest } from "./server/orchestrator.mjs";
 
 function apiPlugin(env) {
@@ -27,7 +28,8 @@ function apiPlugin(env) {
             duplex: chunks.length ? "half" : undefined,
             signal: abortController.signal,
           });
-          const response = await handleApiRequest(request, env);
+          const response =
+            (await handleLocalApiRequest(request)) || (await handleApiRequest(request, env));
           if (!response) return next();
 
           nodeResponse.statusCode = response.status;

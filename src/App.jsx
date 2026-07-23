@@ -155,6 +155,8 @@ export function App() {
   const [apiStatus, setApiStatus] = useState({
     loading: true,
     configured: false,
+    provider: "",
+    subscription: null,
     ecoModel: "",
     balancedModel: "",
   });
@@ -315,7 +317,13 @@ export function App() {
     event.preventDefault();
     const cleanGoal = goal.trim();
     if (!cleanGoal) return notify("Сначала опишите задачу");
-    if (!apiStatus.configured) return notify("Сначала подключите OPENAI_API_KEY");
+    if (!apiStatus.configured) {
+      return notify(
+        apiStatus.provider === "codex"
+          ? "Сначала войдите в Codex через ChatGPT"
+          : "Сервер моделей ещё не подключён",
+      );
+    }
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -421,7 +429,13 @@ export function App() {
         <div className="header-actions">
           <span
             className={`connection-dot${apiStatus.configured ? " is-online" : ""}`}
-            title={apiStatus.configured ? "OpenAI API подключён" : "OpenAI API не настроен"}
+            title={
+              apiStatus.configured
+                ? apiStatus.provider === "codex"
+                  ? "Codex подключён через ChatGPT Pro"
+                  : "OpenAI API подключён"
+                : "Модельный сервер не настроен"
+            }
           />
           <div className="header-popover-wrap">
             <button
@@ -447,8 +461,9 @@ export function App() {
                   <span style={{ width: `${usagePercent}%` }} />
                 </div>
                 <p>
-                  В токены уходят только реальные вызовы агентов. Анимация офиса и интерфейс
-                  работают локально.
+                  {apiStatus.provider === "codex"
+                    ? "Это справочная статистика Codex. Отдельной оплаты API нет — используется лимит вашей подписки ChatGPT."
+                    : "В токены уходят только реальные вызовы агентов. Анимация офиса и интерфейс работают локально."}
                 </p>
               </div>
             )}
@@ -556,15 +571,33 @@ export function App() {
             <ListBulletsIcon size={23} />
           </div>
 
+          {!apiStatus.loading && apiStatus.provider === "codex" && apiStatus.configured && (
+            <div className="subscription-notice">
+              <CheckIcon size={20} weight="bold" />
+              <div>
+                <strong>Codex Pro подключён</strong>
+                <p>Работа идёт через вашу подписку ChatGPT — покупать API-токены не нужно.</p>
+              </div>
+            </div>
+          )}
+
           {!apiStatus.loading && !apiStatus.configured && (
             <div className="setup-notice">
               <WarningCircleIcon size={21} weight="fill" />
               <div>
-                <strong>Нужен API-ключ</strong>
-                <p>
-                  Создайте файл <code>.env</code> и добавьте{" "}
-                  <code>OPENAI_API_KEY=...</code>, затем перезапустите сервер.
-                </p>
+                <strong>
+                  {apiStatus.provider === "codex" ? "Нужно войти в Codex" : "Локальный режим"}
+                </strong>
+                {apiStatus.provider === "codex" ? (
+                  <p>
+                    Выполните <code>codex login</code> и войдите через аккаунт ChatGPT Pro.
+                  </p>
+                ) : (
+                  <p>
+                    Эта опубликованная версия не видит Codex на вашем Mac. Запустите проект
+                    локально, чтобы использовать подписку ChatGPT.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -588,7 +621,7 @@ export function App() {
                 disabled={running}
               >
                 Экономно
-                <small>{apiStatus.ecoModel || "Luna"} · до 3 шагов</small>
+                <small>{apiStatus.ecoModel || "Luna · 3 роли"}</small>
               </button>
               <button
                 type="button"
@@ -597,26 +630,28 @@ export function App() {
                 disabled={running}
               >
                 Точнее
-                <small>{apiStatus.balancedModel || "Terra"} · до 4 шагов</small>
+                <small>{apiStatus.balancedModel || "Terra · 4 роли"}</small>
               </button>
             </div>
 
-            <div className="budget-control">
-              <div>
-                <label htmlFor="token-budget">Мягкий лимит</label>
-                <strong>{formatTokens(budget)} токенов</strong>
+            {apiStatus.provider !== "codex" && (
+              <div className="budget-control">
+                <div>
+                  <label htmlFor="token-budget">Мягкий лимит</label>
+                  <strong>{formatTokens(budget)} токенов</strong>
+                </div>
+                <input
+                  id="token-budget"
+                  type="range"
+                  min="3000"
+                  max="16000"
+                  step="1000"
+                  value={budget}
+                  onChange={(event) => setBudget(Number(event.target.value))}
+                  disabled={running}
+                />
               </div>
-              <input
-                id="token-budget"
-                type="range"
-                min="3000"
-                max="16000"
-                step="1000"
-                value={budget}
-                onChange={(event) => setBudget(Number(event.target.value))}
-                disabled={running}
-              />
-            </div>
+            )}
 
             {running ? (
               <button type="button" className="run-button run-button--stop" onClick={stopRun}>
