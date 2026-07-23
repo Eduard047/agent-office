@@ -507,6 +507,10 @@ export function App() {
                     <strong>{remainingPercent}%</strong> лимита
                   </>
                 )
+              ) : apiStatus.provider === "static" ? (
+                <>
+                  <strong>Демо</strong> онлайн
+                </>
               ) : (
                 <>
                   <strong>{formatTokens(run.usage.total)}</strong> токенов
@@ -597,7 +601,7 @@ export function App() {
         <div className="office-panel">
           <img
             className="office-image"
-            src="/assets/office-room.png"
+            src={`${import.meta.env.BASE_URL}assets/office-room.png`}
             alt="Светлый офис с четырьмя AI-агентами за рабочими столами"
           />
 
@@ -713,8 +717,8 @@ export function App() {
                   </p>
                 ) : (
                   <p>
-                    Эта опубликованная версия не видит Codex на вашем Mac. Запустите проект
-                    локально, чтобы использовать подписку ChatGPT.
+                    Офис доступен онлайн постоянно. Для запуска настоящих агентов через подписку
+                    ChatGPT откройте локальную версию на вашем Mac.
                   </p>
                 )}
               </div>

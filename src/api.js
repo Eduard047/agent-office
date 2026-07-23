@@ -1,6 +1,18 @@
 export async function getApiStatus() {
+  if (window.location.hostname.endsWith("github.io")) {
+    return {
+      configured: false,
+      provider: "static",
+      subscription: null,
+      accountUsage: null,
+    };
+  }
+
   const response = await fetch("/api/status", { headers: { accept: "application/json" } });
-  if (!response.ok) throw new Error("Не удалось проверить подключение к серверу.");
+  const contentType = response.headers.get("content-type") || "";
+  if (!response.ok || !contentType.includes("application/json")) {
+    throw new Error("Не удалось проверить подключение к серверу.");
+  }
   return response.json();
 }
 
