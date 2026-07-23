@@ -4,6 +4,8 @@ const LOCAL_BRIDGE_ORIGINS = [
   "http://192.168.50.99:4173",
 ];
 
+export const LOCAL_OFFICE_URL = LOCAL_BRIDGE_ORIGINS[0];
+
 let apiOrigin = "";
 
 async function fetchStatus(origin = "", timeoutMs = 3000) {

@@ -1054,7 +1054,17 @@ textarea:focus-visible {
   line-height: 1.45;
 }
 
+.bridge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
 .bridge-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-top: 9px;
   min-height: 34px;
   padding: 0 11px;
@@ -1065,10 +1075,26 @@ textarea:focus-visible {
   cursor: pointer;
   font-size: 10px;
   font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.bridge-actions .bridge-button {
+  margin-top: 0;
+}
+
+.bridge-button--primary {
+  border-color: #7cae5e;
+  background: #5f9f42;
+  color: white;
 }
 
 .bridge-button:hover {
   background: white;
+}
+
+.bridge-button--primary:hover {
+  background: #4f8d35;
 }
 
 .bridge-button:disabled {

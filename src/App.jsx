@@ -15,7 +15,7 @@ import {
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import { getApiStatus, streamRun } from "./api.js";
+import { getApiStatus, LOCAL_OFFICE_URL, streamRun } from "./api.js";
 
 const EMPTY_USAGE = { input: 0, output: 0, total: 0, cached: 0 };
 const STORAGE_KEY = "agent-office:last-run";
@@ -736,17 +736,22 @@ export function App() {
                 ) : (
                   <>
                     <p>
-                      Откройте локальную версию на Mac и разрешите браузеру доступ к локальной
-                      сети, затем подключите Codex.
+                      GitHub Pages не всегда может обратиться к Mac из-за защиты браузера.
+                      Откройте рабочий офис — он сразу использует вашу подписку Codex Pro.
                     </p>
-                    <button
-                      type="button"
-                      className="bridge-button"
-                      onClick={connectLocalCodex}
-                      disabled={connectingBridge}
-                    >
-                      {connectingBridge ? "Проверяю…" : "Подключить локальный Codex"}
-                    </button>
+                    <div className="bridge-actions">
+                      <a className="bridge-button bridge-button--primary" href={LOCAL_OFFICE_URL}>
+                        Открыть рабочий офис
+                      </a>
+                      <button
+                        type="button"
+                        className="bridge-button"
+                        onClick={connectLocalCodex}
+                        disabled={connectingBridge}
+                      >
+                        {connectingBridge ? "Проверяю…" : "Подключить здесь"}
+                      </button>
+                    </div>
                   </>
                 )}
               </div>
