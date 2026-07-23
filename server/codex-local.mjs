@@ -190,6 +190,21 @@ function normalizeAccountUsage(rateLimitResponse, usageResponse) {
 
   if (!rateLimits && !usageResponse?.summary) return null;
 
+  const dailyUsage = Array.isArray(usageResponse?.dailyUsageBuckets)
+    ? usageResponse.dailyUsageBuckets
+        .map((bucket) => ({
+          startDate: String(bucket.startDate || ""),
+          tokens: Number(bucket.tokens || 0),
+        }))
+        .filter((bucket) => bucket.startDate)
+        .sort((a, b) => a.startDate.localeCompare(b.startDate))
+    : [];
+  const today = new Date().toISOString().slice(0, 10);
+  const todayTokens = dailyUsage.find((bucket) => bucket.startDate === today)?.tokens ?? 0;
+  const lastSevenDaysTokens = dailyUsage
+    .slice(-7)
+    .reduce((total, bucket) => total + bucket.tokens, 0);
+
   return {
     planType: rateLimits?.planType || null,
     primary: normalizeWindow(rateLimits?.primary),
@@ -209,6 +224,8 @@ function normalizeAccountUsage(rateLimitResponse, usageResponse) {
       usageResponse?.summary?.peakDailyTokens == null
         ? null
         : Number(usageResponse.summary.peakDailyTokens),
+    todayTokens,
+    lastSevenDaysTokens,
   };
 }
 

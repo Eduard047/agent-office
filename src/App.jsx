@@ -81,11 +81,8 @@ function formatTokens(value) {
   return `${compact}k`;
 }
 
-function formatLargeNumber(value) {
-  return new Intl.NumberFormat("ru-RU", {
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Number(value || 0));
+function formatExactTokens(value) {
+  return `${Number(value || 0).toLocaleString("ru-RU")} токенов`;
 }
 
 function formatResetTime(timestamp) {
@@ -543,12 +540,20 @@ export function App() {
                     )}
                     <div className="usage-detail-row">
                       <span>Этот запуск</span>
-                      <strong>{run.usage.total.toLocaleString("ru-RU")} токенов</strong>
+                      <strong>{formatExactTokens(run.usage.total)}</strong>
                     </div>
+                    {apiStatus.accountUsage?.lastSevenDaysTokens != null && (
+                      <div className="usage-detail-row">
+                        <span>За 7 дней</span>
+                        <strong>
+                          {formatExactTokens(apiStatus.accountUsage.lastSevenDaysTokens)}
+                        </strong>
+                      </div>
+                    )}
                     {apiStatus.accountUsage?.lifetimeTokens != null && (
                       <div className="usage-detail-row">
                         <span>Всего обработано</span>
-                        <strong>{formatLargeNumber(apiStatus.accountUsage.lifetimeTokens)}</strong>
+                        <strong>{formatExactTokens(apiStatus.accountUsage.lifetimeTokens)}</strong>
                       </div>
                     )}
                     <p>

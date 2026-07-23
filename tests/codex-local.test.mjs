@@ -50,12 +50,17 @@ test("normalizes subscription usage as remaining rate-limit percentage", () => {
     },
     {
       summary: { lifetimeTokens: 987654, peakDailyTokens: 123456 },
+      dailyUsageBuckets: [
+        { startDate: "2026-07-21", tokens: 1200 },
+        { startDate: "2026-07-22", tokens: 3400 },
+      ],
     },
   );
 
   assert.equal(usage.planType, "pro");
   assert.equal(usage.primary.remainingPercent, 28);
   assert.equal(usage.lifetimeTokens, 987654);
+  assert.equal(usage.lastSevenDaysTokens, 4600);
 });
 
 test("extracts the structured final message and Codex usage", () => {
