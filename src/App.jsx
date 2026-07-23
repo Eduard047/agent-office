@@ -203,6 +203,7 @@ export function App() {
   const [budget, setBudget] = useState(6000);
   const [showBudget, setShowBudget] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
+  const [connectingBridge, setConnectingBridge] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(null);
   const [showResult, setShowResult] = useState(Boolean(loadLastRun()));
   const [toast, setToast] = useState("");
@@ -275,6 +276,23 @@ export function App() {
   const notify = (message) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 2400);
+  };
+
+  const connectLocalCodex = async () => {
+    setConnectingBridge(true);
+    try {
+      const status = await getApiStatus();
+      setApiStatus({ ...status, loading: false });
+      notify(
+        status.configured
+          ? "Локальный Codex подключён"
+          : "Codex не найден — проверьте, что локальная версия открыта",
+      );
+    } catch {
+      notify("Не удалось подключиться к локальному Codex");
+    } finally {
+      setConnectingBridge(false);
+    }
   };
 
   const handleRunEvent = (event) => {
@@ -716,10 +734,20 @@ export function App() {
                     Выполните <code>codex login</code> и войдите через аккаунт ChatGPT Pro.
                   </p>
                 ) : (
-                  <p>
-                    Офис доступен онлайн постоянно. Для запуска настоящих агентов через подписку
-                    ChatGPT откройте локальную версию на вашем Mac.
-                  </p>
+                  <>
+                    <p>
+                      Откройте локальную версию на Mac и разрешите браузеру доступ к локальной
+                      сети, затем подключите Codex.
+                    </p>
+                    <button
+                      type="button"
+                      className="bridge-button"
+                      onClick={connectLocalCodex}
+                      disabled={connectingBridge}
+                    >
+                      {connectingBridge ? "Проверяю…" : "Подключить локальный Codex"}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -784,7 +812,7 @@ export function App() {
               </div>
             </div>
 
-            {apiStatus.provider !== "codex" && (
+            {apiStatus.provider === "api" && (
               <div className="budget-control">
                 <div>
                   <label htmlFor="token-budget">Мягкий лимит</label>

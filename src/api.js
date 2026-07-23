@@ -1,23 +1,61 @@
+const LOCAL_BRIDGE_ORIGINS = [
+  "http://127.0.0.1:4173",
+  "http://localhost:4173",
+  "http://192.168.50.99:4173",
+];
+
+let apiOrigin = "";
+
+async function fetchStatus(origin = "", timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${origin}/api/status`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (!response.ok || !contentType.includes("application/json")) {
+      throw new Error("Status endpoint is unavailable.");
+    }
+    return response.json();
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export async function getApiStatus() {
-  if (window.location.hostname.endsWith("github.io")) {
+  const hostedStatic = window.location.hostname.endsWith("github.io");
+
+  if (hostedStatic) {
+    for (const origin of LOCAL_BRIDGE_ORIGINS) {
+      try {
+        const status = await fetchStatus(origin, 1800);
+        if (status?.provider === "codex") {
+          apiOrigin = origin;
+          return { ...status, bridgeOrigin: origin };
+        }
+      } catch {
+        // Try the next local address. Browsers may block one loopback alias.
+      }
+    }
+
+    apiOrigin = "";
     return {
       configured: false,
       provider: "static",
       subscription: null,
       accountUsage: null,
+      bridgeOrigin: null,
     };
   }
 
-  const response = await fetch("/api/status", { headers: { accept: "application/json" } });
-  const contentType = response.headers.get("content-type") || "";
-  if (!response.ok || !contentType.includes("application/json")) {
-    throw new Error("Не удалось проверить подключение к серверу.");
-  }
-  return response.json();
+  apiOrigin = "";
+  return fetchStatus();
 }
 
 export async function streamRun({ goal, model, effort, budget, signal, onEvent }) {
-  const response = await fetch("/api/runs", {
+  const response = await fetch(`${apiOrigin}/api/runs`, {
     method: "POST",
     headers: {
       accept: "application/x-ndjson",

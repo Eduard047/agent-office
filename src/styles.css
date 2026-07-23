@@ -1054,6 +1054,28 @@ textarea:focus-visible {
   line-height: 1.45;
 }
 
+.bridge-button {
+  margin-top: 9px;
+  min-height: 34px;
+  padding: 0 11px;
+  border: 1px solid #d7b975;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #6f5017;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.bridge-button:hover {
+  background: white;
+}
+
+.bridge-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 .setup-notice code {
   padding: 1px 4px;
   border-radius: 4px;
